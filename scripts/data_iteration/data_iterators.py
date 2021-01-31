@@ -27,9 +27,22 @@ class RunIteratorSettings:
         a = locals()
         del a['self']
         self.__dict__.update(a)
-        
-    def save(self, dest):
-        raise NotImplementedError('someone is lazy (－‸ლ)')
+
+class ExRunIteratorSettings(RunIteratorSettings):
+    def __init__(self
+        , hyperparameters = None
+        , losses = None
+        **kwargs
+        ):
+        super().__init__(**kwargs)
+        self.hyperparameters = hyperparameters
+        self.losses = losses
+
+
+
+
+
+
         
 
 class TSSbase(ABC):
@@ -325,6 +338,8 @@ class RunIterator: # == File
         , data_folder='../../npz-data'
         , filters = None 
         ):
+        assert isinstance(settings, (RunIteratorSettings, ExRunIteratorSettings))
+        assert isinstance(data_folder, str)
         self.data_folder = data_folder
         self.settings = settings
         
@@ -367,6 +382,7 @@ class RunIterator: # == File
                 return obj
         except IndexError:
             raise StopIteration()
+
         
 # TESTS
 
