@@ -28,22 +28,21 @@ class RunIteratorSettings:
         del a['self']
         self.__dict__.update(a)
 
-class ExRunIteratorSettings(RunIteratorSettings):
+class CsvRunIteratorSettings(RunIteratorSettings):
+    # use if you want csv result logger too
     def __init__(self
         , hyperparameters = None
         , losses = None
-        **kwargs
+        , **kwargs
         ):
+        assert isinstance(losses, list)
+        assert all(isinstance(x, str) for x in losses)
+        if hyperparameters is None:
+            hyperparameters = dict()
+
         super().__init__(**kwargs)
         self.hyperparameters = hyperparameters
         self.losses = losses
-
-
-
-
-
-
-        
 
 class TSSbase(ABC):
     def __init__(self
@@ -90,24 +89,14 @@ class TSSbase(ABC):
         return dictionary
     
     @staticmethod
-    def remove_duplicits_basic(points, *others):
-        oepm = dataset_duplicits_toolkit.duplicit_mask(points)
-        points = points[oepm, ...]
-        return (points,) + tuple(x[oepm, ...] for x in others)
-    
-    @staticmethod
     def mahalanobis_distance(differences, inverse_of_square_of_cov_mat, do_not_square=False):
         N = differences.shape[:-1]
         D = differences.shape[-1]
-        
         assert inverse_of_square_of_cov_mat.shape == (D,D)
-        
         centered_points = np.matmul(differences, inverse_of_square_of_cov_mat)
         
-        if do_not_square:
-            return np.sum(np.square(centered_points), axis=-1)
-        else:
-            return np.sqrt(np.sum(np.square(centered_points), axis=-1))
+        if do_not_square: return np.sum(np.square(centered_points), axis=-1)
+        else: return np.sqrt(np.sum(np.square(centered_points), axis=-1))
 
 
 class TSS0(TSSbase):
@@ -206,19 +195,19 @@ class State:
         
         # Duplicit filtering
         if self._settings.remove_duplicits_from_archive:
-            self.x_fit, self.y_fit = self.remove_duplicits_basic(self.x_fit, self.y_fit)
+            self.x_fit, self.y_fit = self._remove_duplicits_basic(self.x_fit, self.y_fit)
             
         archive_points = self.x_fit
             
         if self._settings.remove_duplicits_from_population:    
-            population, = self.remove_duplicits_basic(population)
+            population, = self._remove_duplicits_basic(population)
         
         if self._settings.remove_already_known_points_from_tss_selection_process:
-            population = self.remove_elements(archive_points, population)
+            population = self._remove_elements(archive_points, population)
             
         # TSS filtering
-        tss = self.get_tss(population)
-        self.x_fit, self.y_fit = self.select_by_tss(tss, self.x_fit, self.y_fit)
+        tss = self._get_tss(population)
+        self.x_fit, self.y_fit = self._select_by_tss(tss, self.x_fit, self.y_fit)
         
         # Evaluation ....
         self.x_eval = self._run.points[pos:next_pos, ...]
@@ -234,19 +223,19 @@ class State:
         # Remove evaluation dupl.
         if self._settings.remove_already_known_points_from_evaluation_process:
             if self._settings.zbynek_mode: 
-                self.x_eval, self.y_eval, self.y_eval_base =                     self.remove_elements(archive_points, self.x_eval, self.y_eval, self.y_eval_base)
+                self.x_eval, self.y_eval, self.y_eval_base =                     self._remove_elements(archive_points, self.x_eval, self.y_eval, self.y_eval_base)
             else:
-                self.x_eval, self.y_eval = self.remove_elements(archive_points, self.x_eval, self.y_eval)
+                self.x_eval, self.y_eval = self._remove_elements(archive_points, self.x_eval, self.y_eval)
             
         
     @staticmethod
-    def remove_duplicits_basic(points, *others):
+    def _remove_duplicits_basic(points, *others):
         oepm = dataset_duplicits_toolkit.duplicit_mask(points)
         points = points[oepm, ...]
         return (points,) + tuple(x[oepm, ...] for x in others)
     
     @staticmethod
-    def remove_elements(to_remove, points, *others):
+    def _remove_elements(to_remove, points, *others):
         assert to_remove.shape[1] == points.shape[1]
         assert len(to_remove.shape) == len(points.shape) == 2
         
@@ -258,7 +247,7 @@ class State:
         mask = dataset_duplicits_toolkit.duplicit_mask_with_hot_elements(all_elems, hot_mask)[len(to_remove):]
         return (points[mask, ...], ) + tuple(x[mask, ...] for x in others)
         
-    def select_by_tss(self, tss, points, evals, *others):
+    def _select_by_tss(self, tss, points, evals, *others):
         kwargs = {}
         if self._settings.use_distance_weight:
             kwargs['add_minimal_distances'] = True
@@ -270,7 +259,7 @@ class State:
         
         return (points[mask, ...], evals[mask]) + tuple(x[mask, ...] for x in others)
         
-    def get_tss(self, population):
+    def _get_tss(self, population):
         assert self._run.surrogate_param_type == 'nearest'
         
         inv_cov_sqrt = 1./self._run.surrogate_data_sigmas[self._gen] *             np.linalg.inv(self._run.surrogate_data_bds[self._gen, ...]) 
@@ -289,6 +278,9 @@ class State:
             return TSS0(population, inv_cov_sqrt)
         else:
             raise NotImplementedError("I don't know what to say...")
+
+    def provide_results(self, losses):
+        raise NotImplementedError('todo')
         
 
 class StateIterator: # / == Run
@@ -329,7 +321,6 @@ class StateIterator: # / == Run
         
     def __repr__(self):
         return self.name
-    
 
 
 class RunIterator: # == File
@@ -337,8 +328,10 @@ class RunIterator: # == File
         , settings
         , data_folder='../../npz-data'
         , filters = None 
+        , hyperparameters = None
+        , losses = None
         ):
-        assert isinstance(settings, (RunIteratorSettings, ExRunIteratorSettings))
+        assert isinstance(settings, (RunIteratorSettings, CsvRunIteratorSettings))
         assert isinstance(data_folder, str)
         self.data_folder = data_folder
         self.settings = settings
