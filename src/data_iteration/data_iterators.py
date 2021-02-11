@@ -5,6 +5,7 @@ from collections import Iterable
 import numpy as np
 import os
 import itertools
+import functools
 import collections
 import re
 import copy
@@ -274,6 +275,11 @@ class State:
         else:
             raise NotImplementedError("I don't know what to say...")
 
+class MockStateIterator:
+    def __init__(self, name=None, path=None, **kwargs):
+        self.name = name
+        self.path = path
+        self.__dict__.update(kwargs)
 
 class StateIterator:  # / == Run
     '''
@@ -343,6 +349,7 @@ class RunIterator:  # == File
             self.filters = [filters]
 
         self._inspect_data_folder()
+        self.reg_exp = re.compile(r'.*results_(?P<fid>\d+)_(?P<dim>\d+)D_(?P<taskid>\d+)_(?P<run>\d+).npz')
 
     @staticmethod
     def _order_key(file):
@@ -354,15 +361,53 @@ class RunIterator:  # == File
         self.data_files.sort(key=self._order_key)
 
     def __iter__(self):
+        self.reg_exp, tmp = None, self.reg_exp 
         instance = copy.deepcopy(self)
+        self.reg_exp = tmp
+        instance.reg_exp = tmp
         return instance
+
+    def _get_item(self, name, path, cls=StateIterator):
+        g = self.reg_exp.match(name)
+        assert g
+
+        return cls(
+                name=name, 
+                path=path, 
+                function_id = int(g.group('fid')),
+                dimensions = int(g.group('dim')),
+                taskid = int(g.group('taskid')),
+                run = int(g.group('run')),
+                settings=self.settings)
+
+
+
+    @property
+    @functools.lru_cache()
+    def elements(self):
+        i = 0
+        for name in self.data_files:
+            path = os.path.join(self.data_folder, name)
+            obj = self._get_item(name, path, cls=MockStateIterator)
+
+            ok = True
+            for fce in self.filters:
+                try:
+                    if not fce(obj):
+                        ok = False
+                        break
+                except:
+                    pass
+            if ok:
+                i += 1
+        return i
 
     def __next__(self):
         try:
             while True:
                 name = self.data_files.pop(0)
                 path = self.data_folder + '/' + name
-                obj = StateIterator(name=name, path=path, settings=self.settings)
+                obj = self._get_item(name, path)
 
                 ok = True
                 for fce in self.filters:
