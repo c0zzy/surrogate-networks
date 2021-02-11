@@ -1,14 +1,17 @@
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process.kernels import Matern
 
-from src.surrogate import Surrogate
+from src.models.surrogate import Surrogate
 
 
 class SkGPSurrogate(Surrogate):
     def __init__(self):
         super().__init__()
-        kernel = 1.0 * RBF(1.0)
-        self.regressor = GaussianProcessRegressor(kernel=kernel)
+
+        self.regressor = GaussianProcessRegressor(
+            kernel=Matern(nu=2.5, length_scale=1),
+            alpha=0
+        )
 
     def fit(self, x, y):
         self.regressor.fit(x, y)

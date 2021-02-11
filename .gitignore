@@ -130,4 +130,10 @@ dmypy.json
 
 # Other
 old/
+
+.git
+.idea
+
 *.drawio
+*.npy
+*.npz

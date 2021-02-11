@@ -379,7 +379,6 @@ class RunIterator:  # == File
 # TESTS
 
 if __name__ == '__main__':
-    from IPython.core.debugger import set_trace
     import unittest
     import scipy
     import scipy.linalg
