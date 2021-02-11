@@ -10,7 +10,6 @@ import re
 import copy
 import math
 from abc import ABC, abstractmethod
-import inspect
 
 import dataset_duplicits_toolkit
 
@@ -36,16 +35,16 @@ class RunIteratorSettings:
 class TSSbase(ABC):
     def __init__(self
                  , population
-                 , inv_covariance_sqrt):
+                 , mahalanobis_transf):
         self.population = population
-        self.inv_covariance_sqrt = inv_covariance_sqrt
+        self.mahalanobis_transf = mahalanobis_transf
 
-        assert isinstance(self.inv_covariance_sqrt, np.ndarray)
-        assert len(self.inv_covariance_sqrt.shape) == 2
-        assert self.inv_covariance_sqrt.shape[0] == self.inv_covariance_sqrt.shape[1]
-        assert self.inv_covariance_sqrt.shape[0] > 0
+        assert isinstance(self.mahalanobis_transf, np.ndarray)
+        assert len(self.mahalanobis_transf.shape) == 2
+        assert self.mahalanobis_transf.shape[0] == self.mahalanobis_transf.shape[1]
+        assert self.mahalanobis_transf.shape[0] > 0
         assert len(self.population.shape) == 2
-        assert self.population.shape[1] == self.inv_covariance_sqrt.shape[0]
+        assert self.population.shape[1] == self.mahalanobis_transf.shape[0]
 
     @abstractmethod
     def __call__(self, archive_points, archive_evaluation, compute_distances=True, add_minimal_distances=False):
@@ -58,7 +57,7 @@ class TSSbase(ABC):
             # (O, G, D)
             differences = self.population[np.newaxis, :, :] - archive_points[:, np.newaxis, :]
             # (O, G)
-            distances = self.mahalanobis_distance(differences, self.inv_covariance_sqrt, do_not_square=True)
+            distances = self.mahalanobis_distance(differences, self.mahalanobis_transf, do_not_square=True)
         else:
             distances = None
 
@@ -111,10 +110,10 @@ class TSS0(TSSbase):
 class TSS2(TSSbase):
     def __init__(self
                  , population
-                 , inv_covariance_sqrt
+                 , mahalanobis_transf
                  , maximum_distance
                  , maximum_number):
-        super().__init__(population, inv_covariance_sqrt)
+        super().__init__(population, mahalanobis_transf)
 
         self.maximum_distance = maximum_distance
         self.maximum_number = maximum_number
@@ -264,18 +263,10 @@ class State:
 
         sigma = self._run.surrogate_data_sigmas[self._gen]
         BD = self._run.surrogate_data_bds[self._gen, ...]
-        diagD = self._run.surrogate_data_diagDs[self._gen]
-        diagC = self._run.surrogate_data_diagCs[self._gen]
-        Dinvsq = np.diag(1. / (diagD ** 2))
+        # diagD = self._run.surrogate_data_diagDs[self._gen]
+        # diagC = self._run.surrogate_data_diagCs[self._gen]
 
-        # TODO
-        # cov = np.matmul(BD, BD.T) * sigma ** 2
-
-        inv_cov_sqrt = np.matmul(BD, Dinvsq) / sigma
-        # print(inv_cov_sqrt)
-
-        # inv_cov_sqrt = 1. / self._run.surrogate_data_sigmas[self._gen] * np.linalg.inv(
-        #     self._run.surrogate_data_bds[self._gen, ...])
+        mahalanobis_transf = np.linalg.inv(BD * sigma)
 
         if self._settings.tss == 2:
             maximum_distance = float(self._run.surrogate_param_range)
@@ -286,9 +277,9 @@ class State:
                 raise NotImplementedError(f"maximum_number cannot be interpreted: {maximum_number}")
             maximum_number = int(int(v.group(1)) * self._run.dimensions)
 
-            return TSS2(population, inv_cov_sqrt, maximum_distance, maximum_number)
+            return TSS2(population, mahalanobis_transf, maximum_distance, maximum_number)
         elif self._settings.tss == 0:
-            return TSS0(population, inv_cov_sqrt)
+            return TSS0(population, mahalanobis_transf)
         else:
             raise NotImplementedError("I don't know what to say...")
 
@@ -417,15 +408,15 @@ if __name__ == '__main__':
 
     class TestTSS2(unittest.TestCase):
         def call_tss2(self, generation, points, evaluations, maximum_distance=None, maximum_elements=None,
-                      inv_cov_matr_sqrt=None):
-            if inv_cov_matr_sqrt is None:
-                inv_cov_matr_sqrt = np.eye(generation.shape[1])
+                      mahalanobis_transf=None):
+            if mahalanobis_transf is None:
+                mahalanobis_transf = np.eye(generation.shape[1])
             if maximum_elements is None:
                 maximum_elements = points.shape[0]
             if maximum_distance is None:
                 maximum_distance = np.inf
 
-            tss2 = TSS2(generation, inv_cov_matr_sqrt, maximum_distance, maximum_elements)
+            tss2 = TSS2(generation, mahalanobis_transf, maximum_distance, maximum_elements)
             mask, other_stuff = tss2(points, evaluations)
             return mask
 
