@@ -24,11 +24,6 @@ import json
 import tempfile
 import h5py
 
-#from data_iterators import *
-
-
-# In[3]:
-
 
 class _HDF5_Model_base(ABC):
     def __init__(self, *, model: str, root_directory='results'):
@@ -43,9 +38,6 @@ class _HDF5_Model_base(ABC):
         with open(self._dispatcher_path, mode='w', newline='') as dis_file:
             dis_writer = csv.writer(dis_file)
             dis_writer.writerow(['dir_name', 'hyperparameters'])
-
-
-# In[4]:
 
 
 class HyperparameterInspector(_HDF5_Model_base):
@@ -63,9 +55,6 @@ class HyperparameterInspector(_HDF5_Model_base):
             for i, (directory, hp) in enumerate(itertools.islice(dis_reader, 1, None)):
                 result += f'[{i}]: < {str(json.loads(hp))} >\n'
         return result
-
-
-# In[5]:
 
 
 class _HDF5_Hyperparameters_base(_HDF5_Model_base):
@@ -101,10 +90,6 @@ class _HDF5_Hyperparameters_base(_HDF5_Model_base):
                     return self._model_directory_cached
             return None
 
-
-# In[6]:
-
-
 class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
     def __init__(self, *
         , model: str , hyperparameters: dict , root_directory = 'resluts'
@@ -131,11 +116,12 @@ class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
     def init(self):
         pass
 
-
-# In[7]:
-
-
 class Initilaizer(_HDF5_Concrete_base):
+    def __init__(self, *args, 
+            remove_existing_files = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.remove_existing_files = remove_existing_files
+
     def init(self):
         os.makedirs(os.path.dirname(self._dispatcher_path), exist_ok=True)
         
@@ -145,13 +131,25 @@ class Initilaizer(_HDF5_Concrete_base):
         model_directory = self._model_directory
         if model_directory is None:
             model_directory = self._create_model_directory()
+
+        if self.remove_existing_files:
+            try:
+                os.remove(self.hdf5_final_path, )
+            except OSError:
+                pass
+
+            try:
+                os.remove(self.hdf5_tmp_path)
+            except OSError:
+                pass
         
         self._construct_hdf5_dataset(self.hdf5_tmp_path)
+
     
     def _construct_hdf5_dataset(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # use only 'w'
-        with h5py.File(path, 'w') as h5f:
+        with h5py.File(path, 'w-') as h5f:
             dset = h5f.create_dataset('prediction'
                         , shape=(0,0)
                         , chunks=(128,32)
@@ -170,9 +168,6 @@ class Initilaizer(_HDF5_Concrete_base):
                         , maxshape=(None,)
                         , dtype=np.int32
                         , fillvalue=0)
-
-
-# In[8]:
 
 
 class Saver(_HDF5_Concrete_base):
@@ -233,10 +228,6 @@ class Saver(_HDF5_Concrete_base):
     def already_computed(self):
         return self._already_computed
 
-
-# In[9]:
-
-
 class Loader(_HDF5_Concrete_base):
     def init(self):
         self.completed = False
@@ -256,11 +247,6 @@ class Loader(_HDF5_Concrete_base):
             size = h5f['training_samples']
             return np.array(prediction), np.array(target), np.array(size)
             
-
-
-# In[10]:
-
-
 class LoaderIterator(_HDF5_Hyperparameters_base):
     def __iter__(self):
         m = copy.deepcopy(self)
