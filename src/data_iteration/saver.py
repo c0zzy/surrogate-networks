@@ -1,12 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
-
-
 import os
 import sys
-sys.path.append('../data_iteration')
 
 import functools
 import itertools
@@ -23,6 +19,26 @@ import csv
 import json
 import tempfile
 import h5py
+
+sys.path.append('..')
+from losses import Loss
+
+def for_each_h5py(root, ignore=None):
+    if ignore is None:
+        ignore = set()
+
+    for value in root.values():
+        if value.name in ignore:
+            continue
+        elif isinstance(value, h5py.Dataset):
+            ignore.add(value.name)
+            #yield (value.name[1:], np.array(value))
+            yield (value.name[1:], value)
+        elif isinstance(value, h5py.Group):
+            yield from for_each_h5py(value, ignore=ignore)
+        else:
+            logging.warning(f'Dataset is not cleaned property becouse unknown type returned: {v.name}')
+    
 
 
 class _HDF5_Model_base(ABC):
@@ -96,12 +112,24 @@ class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
         , function_id: int
         , dimension: int
         , run: int
+        , losses = None
+        , additional_datasets = None
+
         ):
         super().__init__(model=model, hyperparameters=hyperparameters, root_directory=root_directory)
         
         self.run = run
         self.dimension = dimension
         self.function_id = function_id
+        # losses
+        if losses is None:
+            losses = []
+        assert all(isinstance(x, Loss) for x in losses)
+        self.losses = losses
+        if additional_datasets is None:
+            additional_datasets = []
+        assert all(isinstance(x, str) for x in additional_datasets)
+        self.additional_datasets = additional_datasets
         self.init()
     
     @property
@@ -118,9 +146,10 @@ class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
 
 class Initilaizer(_HDF5_Concrete_base):
     def __init__(self, *args, 
-            remove_existing_files = False, **kwargs):
-        super().__init__(*args, **kwargs)
+            remove_existing_files = False, 
+            **kwargs):
         self.remove_existing_files = remove_existing_files
+        super().__init__(*args, **kwargs)
 
     def init(self):
         os.makedirs(os.path.dirname(self._dispatcher_path), exist_ok=True)
@@ -134,7 +163,7 @@ class Initilaizer(_HDF5_Concrete_base):
 
         if self.remove_existing_files:
             try:
-                os.remove(self.hdf5_final_path, )
+                os.remove(self.hdf5_final_path)
             except OSError:
                 pass
 
@@ -145,29 +174,37 @@ class Initilaizer(_HDF5_Concrete_base):
         
         self._construct_hdf5_dataset(self.hdf5_tmp_path)
 
+    @staticmethod
+    def _add_database(hdf5_file, name):
+        hdf5_file.create_dataset(name
+                    , shape=(0,)
+                    , chunks=(32,)
+                    , maxshape=(None,)
+                    , dtype=np.float32
+                    , fillvalue=-np.inf)
     
     def _construct_hdf5_dataset(self, path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # use only 'w'
         with h5py.File(path, 'w-') as h5f:
-            dset = h5f.create_dataset('prediction'
+            h5f.create_dataset('prediction'
                         , shape=(0,0)
                         , chunks=(128,32)
                         , maxshape=(None, None)
                         , dtype=np.float32
                         , fillvalue=-np.inf)
-            dset = h5f.create_dataset('target'
+            h5f.create_dataset('target'
                         , shape=(0,0)
                         , chunks=(128,32)
                         , maxshape=(None, None)
                         , dtype=np.float32
                         , fillvalue=-np.inf)
-            dset = h5f.create_dataset('training_samples'
-                        , shape=(0,)
-                        , chunks=(128,)
-                        , maxshape=(None,)
-                        , dtype=np.int32
-                        , fillvalue=0)
+
+            for loss in self.losses:
+                self._add_database(h5f, loss.name)
+
+            for adsn in self.additional_datasets:
+                self._add_database(h5f, adsn)
 
 
 class Saver(_HDF5_Concrete_base):
@@ -186,42 +223,59 @@ class Saver(_HDF5_Concrete_base):
     def finalize(self):
         os.rename(self.hdf5_tmp_path, self.hdf5_final_path)
         self.completed = True
-        
+
+    def clean(self, dset):
+        with h5py.File(dset, mode='a') as f:
+            for (name, value) in for_each_h5py(f):
+                value.resize((0,*value.shape[1:]))
+
     def _check_hdf5_dataset_state(self, path):
         with h5py.File(path, 'r') as h5f:
             prediction = h5f['prediction']
             target = h5f['target']
-            training_size = h5f['training_samples']
             
-            if prediction.shape != target.shape or prediction.shape[0] != training_size.shape[0]:
-                logging.warning(f'Shape mismatch prediction:{prediction.shape} target:{target.shape} training_samples:{training_size.shape} in file {path}')
+            if prediction.shape != target.shape:
+                logging.warning(f'Shape mismatch prediction:{prediction.shape} target:{target.shape} in file {path}')
             
-            return min(min(prediction.shape[0], target.shape[0]), training_size.shape[0])
+            return min(prediction.shape[0], target.shape[0])
             
-    def write_results_to_dataset(self, *, prediction, target, training_samples):
+    def write_results_to_dataset(self, *, prediction, target, **kwargs):
         assert isinstance(prediction, np.ndarray)
         assert isinstance(target, np.ndarray)
         assert len(prediction.shape) == 1
         assert target.shape == prediction.shape
-        training_samples = int(training_samples)
+
+        # Add losses
+        others = {}
+        for loss_obj in self.losses:
+            loss_value = loss_obj(prediction, target)
+            others[loss_obj.name] = loss_value
+        # Add other
+        others.update(kwargs)
         
         if self.disable:
-            return 
+            return others
         
         with h5py.File(self.hdf5_tmp_path, 'a') as h5f:
             pred_d = h5f['prediction']
-            targ_d = h5f['target']
-            size_d = h5f['training_samples']
-            
             pred_d.resize( (self._skip+1, max(pred_d.shape[1], len(prediction))) )
             pred_d[-1, :len(prediction)] = prediction
-            
+
+            targ_d = h5f['target']
             targ_d.resize( (self._skip+1, max(targ_d.shape[1], len(prediction))) )
             targ_d[-1, :len(target)] = target 
-            
-            size_d.resize( (self._skip+1,) )
-            size_d[-1] = training_samples
-            
+
+            for key, val in others.items():
+                try:
+                    d = h5f[key]
+                except KeyError:
+                    logging.warning(f"Key: {key} cannot be saved: inner database not found: creating database")
+                    Initilaizer._add_database(h5f, key)
+                d = h5f[key]
+
+                d.resize( (d.shape[0]+1, *d.shape[1:]) )
+                d[-1, ...] = val
+
             self._skip += 1
             
     @property
@@ -242,10 +296,14 @@ class Loader(_HDF5_Concrete_base):
     @property
     def data(self):
         with h5py.File(self._data_path, 'r') as h5f:
-            prediction = h5f['prediction']
-            target = h5f['target']
-            size = h5f['training_samples']
-            return np.array(prediction), np.array(target), np.array(size)
+            prediction = np.array(h5f['prediction'])
+            target = np.array(h5f['target'])
+            others = {}
+
+            for (name, value) in for_each_h5py(h5f, ignore=set(['/target', '/prediction'])):
+                others[name] = np.array(value)
+
+        return prediction, target, others
             
 class LoaderIterator(_HDF5_Hyperparameters_base):
     def __iter__(self):
@@ -281,39 +339,35 @@ class LoaderIterator(_HDF5_Hyperparameters_base):
         return l, conf
 
 
-# In[16]:
-
-
 if __name__ == '__main__':
     import unittest
     import shutil
     import random
     import collections
 
-
-# In[17]:
-
+    import losses
 
 if __name__ == '__main__':
     class TestInitializer(unittest.TestCase):
         testFileDirName = 's1412_test'
         
+        '''
         @classmethod
         def setUpClass(cls):
             shutil.rmtree(cls.testFileDirName, ignore_errors=True)
+        '''
             
         @classmethod
         def tearDownClass(cls):
             shutil.rmtree(cls.testFileDirName)
             
         def setUp(self):
-            #self.testFileDirName = self.__class__.testFileDirName
-            pass
+            shutil.rmtree(self.testFileDirName, ignore_errors=True)
             
         def test_loader(self):
             # CREATE FIRST MODEL
             Initilaizer( model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                    , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
                   )
             self.assertTrue(os.path.exists(
                 os.path.join(self.testFileDirName, 'testModel1', 'dispatcher.csv') ))
@@ -363,26 +417,72 @@ if __name__ == '__main__':
             f = list(itertools.chain.from_iterable((files for subdir, dirs, files in os.walk(self.testFileDirName))))
             self.assertEqual(len([files for files in f if '.hdf5' in files]), 3)
             self.assertEqual( len([files for files in f if files == 'dispatcher.csv']), 2)
+
+        def test_loss(self):
+            Initilaizer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , losses = [losses.LossL2(), losses.LossL1()]
+                  )
+            s = Saver( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , losses = [losses.LossL2(), losses.LossL1()]
+                  )
+            s.write_results_to_dataset(prediction=np.array([1,2,4]), target=np.array([2,2,2]))
+            s.write_results_to_dataset(prediction=np.array([1,2,5]), target=np.array([2,2,2]))
+
+            l = Loader( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                  )
+
+            prediction, target, other_obj = l.data
+
+            self.assertIn('L1', other_obj)
+            self.assertIn('L2', other_obj)
+            self.assertTrue(np.all(
+                np.abs(other_obj['L1'] - np.array([3/3,4/3])) < 1e-5
+                    ))
+            self.assertTrue(np.all(
+                np.abs(other_obj['L2'] - np.array([5/3,10/3])) < 1e-5
+                ))
+
+        def test_additional_datasets(self):
+            Initilaizer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , losses = [losses.LossL2(), losses.LossL1()]
+                    , additional_datasets = ['a']
+                  )
+            s = Saver( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , losses = [losses.LossL2(), losses.LossL1()]
+                  )
+            s.write_results_to_dataset(prediction=np.array([1,2,4]), target=np.array([2,2,2]), a=2)
+            s.write_results_to_dataset(prediction=np.array([1,2,5]), target=np.array([2,2,2]), a=3)
+
+            l = Loader( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                  )
+
+            prediction, target, other_obj = l.data
+            self.assertIn('a', other_obj)
+            self.assertTrue( np.all(other_obj['a'] == np.array([2,3])) )
         
-
-
-# In[18]:
-
 
 if __name__ == '__main__':
     class TestSaverLoader(unittest.TestCase):
         testFileDirName = 's1412_test'
         
+        '''
         @classmethod
         def setUpClass(cls):
             shutil.rmtree(cls.testFileDirName, ignore_errors=True)
+        '''
             
         @classmethod
         def tearDownClass(cls):
             shutil.rmtree(cls.testFileDirName)
             
         def setUp(self):
-            pass
+            shutil.rmtree(self.testFileDirName, ignore_errors=True)
             
         def test_loader(self):
             # CREATE FIRST MODEL
@@ -414,7 +514,7 @@ if __name__ == '__main__':
                 pred, tar, si = l.data
                 self.assertEqual(pred.shape[0], i+1)
                 self.assertEqual(tar.shape[0], i+1)
-                self.assertEqual(si.shape[0], i+1)
+                self.assertEqual(si['training_samples'].shape[0], i+1)
                 
                 for y in range(i+1):
                     self.assertTrue(np.all(pred[y, :sizes[y]] == np.arange(sizes[y])))
@@ -423,7 +523,7 @@ if __name__ == '__main__':
                     self.assertTrue(np.all(tar[y, :sizes[y]] == 1 + np.arange(sizes[y])))
                     self.assertTrue(np.all(tar[y, sizes[y]:] == -np.inf))
                     
-                    self.assertEqual(si[y], sizes[y])
+                    self.assertEqual(si['training_samples'][y], sizes[y])
                     
             ####  NEW SAVER
             s = Saver(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
@@ -441,7 +541,7 @@ if __name__ == '__main__':
             pred, tar, si = l.data
             self.assertEqual(pred.shape[0], len(sizes) + 1)
             self.assertEqual(tar.shape[0], len(sizes) + 1)
-            self.assertEqual(si.shape[0], len(sizes) + 1)
+            self.assertEqual(si['training_samples'].shape[0], len(sizes) + 1)
             
             self.assertTrue(np.all(pred[-1, :10] == np.arange(10)))
             self.assertTrue(np.all(pred[-1, 10:] == -np.inf))
@@ -449,7 +549,7 @@ if __name__ == '__main__':
             self.assertTrue(np.all(tar[-1, :10] == 1 + np.arange(10)))
             self.assertTrue(np.all(tar[-1, 10:] == -np.inf))
 
-            self.assertEqual(si[y], sizes[y])
+            self.assertEqual(si['training_samples'][y], sizes[y])
             
             s.finalize()
             
@@ -457,6 +557,7 @@ if __name__ == '__main__':
             
             l = Loader(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
                 , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName)
+            pred, tar, si = l.data
             
             sizes = sizes + [10]
             
@@ -467,34 +568,66 @@ if __name__ == '__main__':
                 self.assertTrue(np.all(tar[y, :sizes[y]] == 1 + np.arange(sizes[y])))
                 self.assertTrue(np.all(tar[y, sizes[y]:] == -np.inf))
 
-                self.assertEqual(si[y], sizes[y])
+                self.assertEqual(si['training_samples'][y], sizes[y])
 
+        def test_clean_and_emergency_generation_of_dataset(self):
+            Initilaizer(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
+                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
+                losses = [losses.LossL1()]
+                  )
+            
+            s = Saver(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
+                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
+                losses = [losses.LossL1()]
+                  )
 
-# In[19]:
+            sizes = [1,10,111,32]
+            for i,size in enumerate(sizes):
+                # saver
+                s.write_results_to_dataset(
+                    prediction = np.arange(size),
+                    target = np.arange(size) + 1,
+                    training_samples = size
+                )
+
+            s.clean(s.hdf5_tmp_path)
+        
+            l = Loader(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
+                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName)
+
+            pred, tar, si = l.data
+            self.assertEqual(pred.shape[0], 0)
+            self.assertEqual(tar.shape[0], 0)
+            for v in si.values():
+                self.assertEqual(v.shape[0], 0)
+
 
 
 if __name__ == '__main__':
     class TestIterator(unittest.TestCase):
             testFileDirName = 's1412_test'
 
+            '''
             @classmethod
             def setUpClass(cls):
                 shutil.rmtree(cls.testFileDirName, ignore_errors=True)
+            '''
 
             @classmethod
             def tearDownClass(cls):
                 shutil.rmtree(cls.testFileDirName)
 
             def setUp(self):
-                #self.testFileDirName = self.__class__.testFileDirName
-                pass
+                shutil.rmtree(self.testFileDirName, ignore_errors=True)
 
             def create_data(self, model, hyperparameters, fid, dim, run, offset=0):
-                Initilaizer(model=model, hyperparameters=hyperparameters, 
-                    function_id=fid , dimension=dim , run=run , root_directory = self.testFileDirName)
+                Initilaizer(model=model, 
+                        hyperparameters=hyperparameters, 
+                    function_id=fid, dimension=dim , run=run, 
+                    root_directory = self.testFileDirName, additional_datasets=['training_samples'])
 
-                s = Saver(model=model, hyperparameters=hyperparameters, 
-                        function_id=fid , dimension=dim , run=run , root_directory = self.testFileDirName )
+                s = Saver(model=model, hyperparameters=hyperparameters,
+                        function_id=fid, dimension=dim, run=run, root_directory = self.testFileDirName)
 
                 for size in [2, 5, 3, 17, 13]:
                     s.write_results_to_dataset(
@@ -506,7 +639,7 @@ if __name__ == '__main__':
 
 
             def check_data(self, data, fid, dim, run, offset = 0):
-                pred, targ, tras = data
+                pred, targ, other_obj = data
 
                 for i, size in enumerate([2, 5, 3, 17, 13]):
                     self.assertTrue(np.all(np.arange(size) == pred[i,:size]))
@@ -514,12 +647,12 @@ if __name__ == '__main__':
                     self.assertTrue(np.all(np.arange(size) + fid + dim*100 + run*10000 + offset == targ[i,:size]))
                     self.assertTrue(np.all(-np.inf == targ[i,size:]))
 
-                    self.assertEqual(tras[i], size)
+                    self.assertEqual(other_obj['training_samples'][i], size)
 
 
             def test_loader(self):
                 c = collections.defaultdict(set)
-                for (model, of1) in [('testModel1', 10), ('testModel2', 11)]:
+                for (model, of1) in [('testModel111', 10), ('testModel222', 11)]:
                     for hyp in [{'hyp': 2}, {'hyp': 3}, {'hyp': 4}]:
                         for fid in [11,22,33]:
                             for dim in [10,20,30]:
@@ -527,7 +660,7 @@ if __name__ == '__main__':
                                     c[(model, hyp['hyp'])].add((fid,dim,run))
                                     self.create_data(model, hyp, fid, dim, run, offset=of1 + hyp['hyp'])
 
-                for (model, of1) in [('testModel1', 10), ('testModel2', 11)]:
+                for (model, of1) in [('testModel111', 10), ('testModel222', 11)]:
                     for hyp in [{'hyp': 2}, {'hyp': 3}, {'hyp': 4}]:
                         it = LoaderIterator(model=model, hyperparameters=hyp, 
                                             root_directory=self.testFileDirName )
@@ -538,14 +671,9 @@ if __name__ == '__main__':
                 for t in c.values():
                     self.assertEqual(0, len(t))
                     
-                hi = HyperparameterInspector(model='testModel1', root_directory=self.testFileDirName)
+                hi = HyperparameterInspector(model='testModel111', root_directory=self.testFileDirName)
                 print(hi)
                 print(hi[2])
-
-
-# In[20]:
-
-
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
