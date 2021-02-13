@@ -273,7 +273,7 @@ class Saver(_HDF5_Concrete_base):
                     Initilaizer._add_database(h5f, key)
                 d = h5f[key]
 
-                d.resize( (d.shape[0]+1, *d.shape[1:]) )
+                d.resize( (self._skip+1, *d.shape[1:]) )
                 d[-1, ...] = val
 
             self._skip += 1
