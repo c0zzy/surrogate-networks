@@ -172,7 +172,8 @@ class Initilaizer(_HDF5_Concrete_base):
             except OSError:
                 pass
         
-        self._construct_hdf5_dataset(self.hdf5_tmp_path)
+        if not os.path.exists(self.hdf5_tmp_path):
+            self._construct_hdf5_dataset(self.hdf5_tmp_path)
 
     @staticmethod
     def _add_database(hdf5_file, name):
@@ -208,26 +209,35 @@ class Initilaizer(_HDF5_Concrete_base):
 
 
 class Saver(_HDF5_Concrete_base):
-    def init(self, disable=False):
-        self.completed = False
-        self._skip = 0
+    def __init__(self, *args, disable=False, **kwargs):
         self.disable = disable
+        super().__init__(*args, **kwargs)
+
+    def init(self):
+        self._skip = 0
         
+        self.completed = False
         if os.path.exists(self.hdf5_final_path):
-            logging.info(f'Skipping: Found already created final file: "{self.hdf5_final_path}"')
             self.completed = True
-        else: # continue
+            #logging.info(f'Skipping: Found already created final file: "{self.hdf5_final_path}"')
+
+        if  os.path.exists(self.hdf5_tmp_path):
             self._skip = self._check_hdf5_dataset_state(self.hdf5_tmp_path)
             self._already_computed = self._skip
+        elif not self.completed:
+            e = 'The saver is not property initialized'
+            logging.error(e)
+            raise RuntimeError(e)
         
     def finalize(self):
         os.rename(self.hdf5_tmp_path, self.hdf5_final_path)
         self.completed = True
 
     def clean(self, dset):
-        with h5py.File(dset, mode='a') as f:
-            for (name, value) in for_each_h5py(f):
-                value.resize((0,*value.shape[1:]))
+        if not self.disable:
+            with h5py.File(dset, mode='a') as f:
+                for (name, value) in for_each_h5py(f):
+                    value.resize((0,*value.shape[1:]))
 
     def _check_hdf5_dataset_state(self, path):
         with h5py.File(path, 'r') as h5f:
@@ -236,7 +246,6 @@ class Saver(_HDF5_Concrete_base):
             
             if prediction.shape != target.shape:
                 logging.warning(f'Shape mismatch prediction:{prediction.shape} target:{target.shape} in file {path}')
-            
             return min(prediction.shape[0], target.shape[0])
             
     def write_results_to_dataset(self, *, prediction, target, **kwargs):
@@ -272,7 +281,6 @@ class Saver(_HDF5_Concrete_base):
                     logging.warning(f"Key: {key} cannot be saved: inner database not found: creating database")
                     Initilaizer._add_database(h5f, key)
                 d = h5f[key]
-
                 d.resize( (self._skip+1, *d.shape[1:]) )
                 d[-1, ...] = val
 
