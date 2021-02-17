@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import numpy as np
+import math
 from abc import ABC, abstractmethod
 
 from scipy.stats import kendalltau
@@ -31,7 +32,7 @@ class LossL2(Loss):
         super().__call__(predict, target)
         return np.mean(np.square(predict - target))
 
-class LossKendal(Loss):
+class LossKendall(Loss):
     name = 'Kendall'
     
     def __call__(self, predict, target):
@@ -45,6 +46,15 @@ class LossRDE(Loss):
     
     def __init__(self, mu):
         self.mu = mu
+
+    @property
+    def mu(self):
+        return self._mu
+
+    @mu.setter
+    def mu(self, a):
+        assert isinstance(mu, int)
+        self._mu = a
         
     def _compute_normalization_coefficient(self, lam, mu):
         assert mu <= lam
@@ -66,20 +76,28 @@ class LossRDE(Loss):
         super().__call__(predict, target)
         lam = len(predict)
         try:
-            err_max = self.cache[(lam, self.mu)]
+            err_max = self.cache[(lam, self._mu)]
         except KeyError:
-            err_max = self._compute_normalization_coefficient(lam, self.mu)
-            self.cache[(lam, self.mu)] = err_max
+            err_max = self._compute_normalization_coefficient(lam, self._mu)
+            self.cache[(lam, self._mu)] = err_max
             
         si_predict = np.argsort(predict)
-        si_target  = np.argsort(target)[:self.mu]
+        si_target  = np.argsort(target)[:self._mu]
         
         inRank = np.zeros(lam)
         inRank[si_predict] = np.arange(lam)
         
-        r1 = inRank[si_target[:self.mu]]
-        r2 = np.arange(self.mu)
+        r1 = inRank[si_target[:self._mu]]
+        r2 = np.arange(self._mu)
         return np.sum(np.abs(r1 - r2))/err_max
+
+class LossRDE_auto(LossRDE):
+    def __init__(self):
+        pass
+    def __call__(self, predict, target):
+        lam = len(target)
+        self.mu = int(math.floor(lam / 2))
+        return super().__call__(predict, target)
 
 if __name__ == '__main__':
     import unittest
@@ -131,7 +149,7 @@ if __name__ == '__main__':
                 0.7060, 0.0318, 0.2769, 0.0462, 0.0971, 0.8235, 0.6948, 0.3171, 0.9502, 0.0344, 0.4387])
             tar = np.array([0.3816, 0.7655, 0.7952, 0.1869, 0.4898, 0.4456, 0.6463, 0.7094, 0.7547, 0.2760, 
                   0.6797, 0.6551, 0.1626, 0.1190, 0.4984, 0.9597, 0.3404, 0.5853, 0.2238, 0.7513, 0.2551, ])
-            loss = LossKendal()
+            loss = LossKendall()
             loss(vec, tar)
             
     unittest.main(argv=['first-arg-is-ignored'], exit=False, verbosity=2)
