@@ -52,9 +52,9 @@ class LossRDE(Loss):
         return self._mu
 
     @mu.setter
-    def mu(self, a):
+    def mu(self, mu):
         assert isinstance(mu, int)
-        self._mu = a
+        self._mu = mu
         
     def _compute_normalization_coefficient(self, lam, mu):
         assert mu <= lam
@@ -78,7 +78,7 @@ class LossRDE(Loss):
         try:
             err_max = self.cache[(lam, self._mu)]
         except KeyError:
-            err_max = self._compute_normalization_coefficient(lam, self._mu)
+            err_max = self._compute_normalization_coefficient(lam, self.mu)
             self.cache[(lam, self._mu)] = err_max
             
         si_predict = np.argsort(predict)
