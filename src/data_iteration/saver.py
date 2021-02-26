@@ -144,7 +144,7 @@ class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
     def init(self):
         pass
 
-class Initilaizer(_HDF5_Concrete_base):
+class Initializer(_HDF5_Concrete_base):
     def __init__(self, *args, 
             remove_existing_files = False, 
             **kwargs):
@@ -219,11 +219,9 @@ class Saver(_HDF5_Concrete_base):
         self.completed = False
         if os.path.exists(self.hdf5_final_path):
             self.completed = True
-            #logging.info(f'Skipping: Found already created final file: "{self.hdf5_final_path}"')
 
         if  os.path.exists(self.hdf5_tmp_path):
             self._skip = self._check_hdf5_dataset_state(self.hdf5_tmp_path)
-            self._already_computed = self._skip
         elif not self.completed:
             e = 'The saver is not property initialized'
             logging.error(e)
@@ -279,16 +277,17 @@ class Saver(_HDF5_Concrete_base):
                     d = h5f[key]
                 except KeyError:
                     logging.warning(f"Key: {key} cannot be saved: inner database not found: creating database")
-                    Initilaizer._add_database(h5f, key)
+                    Initializer._add_database(h5f, key)
                 d = h5f[key]
                 d.resize( (self._skip+1, *d.shape[1:]) )
                 d[-1, ...] = val
 
             self._skip += 1
+        return others
             
     @property
     def already_computed(self):
-        return self._already_computed
+        return self._skip
 
 class Loader(_HDF5_Concrete_base):
     def init(self):
@@ -374,7 +373,7 @@ if __name__ == '__main__':
             
         def test_loader(self):
             # CREATE FIRST MODEL
-            Initilaizer( model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
+            Initializer( model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
                     , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
                   )
             self.assertTrue(os.path.exists(
@@ -390,7 +389,7 @@ if __name__ == '__main__':
             self.assertEqual(len(os.listdir(self.testFileDirName)), 1)
             
             # CREATE SECOND MODEL
-            Initilaizer( model='testModel2', hyperparameters={'a': 12.3, 'b': 15}
+            Initializer( model='testModel2', hyperparameters={'a': 12.3, 'b': 15}
                     , function_id=2 , dimension=4 , run=2 , root_directory = self.testFileDirName
                   )
             self.assertTrue(os.path.exists(
@@ -406,7 +405,7 @@ if __name__ == '__main__':
                 
                 
             # CREATE THIRD...
-            Initilaizer( model='testModel1', hyperparameters={'a': 12.3, 'b': 16} # <--- minor change of hyp.
+            Initializer( model='testModel1', hyperparameters={'a': 12.3, 'b': 16} # <--- minor change of hyp.
                     , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
                   )
             self.assertTrue(os.path.exists(
@@ -427,7 +426,7 @@ if __name__ == '__main__':
             self.assertEqual( len([files for files in f if files == 'dispatcher.csv']), 2)
 
         def test_loss(self):
-            Initilaizer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+            Initializer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
                     , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
                     , losses = [losses.LossL2(), losses.LossL1()]
                   )
@@ -454,7 +453,7 @@ if __name__ == '__main__':
                 ))
 
         def test_additional_datasets(self):
-            Initilaizer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
+            Initializer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
                     , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
                     , losses = [losses.LossL2(), losses.LossL1()]
                     , additional_datasets = ['a']
@@ -494,7 +493,7 @@ if __name__ == '__main__':
             
         def test_loader(self):
             # CREATE FIRST MODEL
-            Initilaizer(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
+            Initializer(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
                 , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName
                   )
             
@@ -579,7 +578,7 @@ if __name__ == '__main__':
                 self.assertEqual(si['training_samples'][y], sizes[y])
 
         def test_clean_and_emergency_generation_of_dataset(self):
-            Initilaizer(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
+            Initializer(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
                 , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
                 losses = [losses.LossL1()]
                   )
@@ -629,7 +628,7 @@ if __name__ == '__main__':
                 shutil.rmtree(self.testFileDirName, ignore_errors=True)
 
             def create_data(self, model, hyperparameters, fid, dim, run, offset=0):
-                Initilaizer(model=model, 
+                Initializer(model=model, 
                         hyperparameters=hyperparameters, 
                     function_id=fid, dimension=dim , run=run, 
                     root_directory = self.testFileDirName, additional_datasets=['training_samples'])
