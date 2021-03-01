@@ -342,6 +342,7 @@ class StateIterator:  # / == Run
             , hyperparameters = self._model_settings.hyperparameters
             , function_id = self.function_id
             , dimension = self.dimensions
+            , kernel_id = self.kernel_id
             , run = self.run
             , losses = self._model_settings.losses
             , additional_datasets = self._model_settings.additional_datasets
@@ -363,6 +364,7 @@ class StateIterator:  # / == Run
             , hyperparameters = self._model_settings.hyperparameters
             , function_id = self.function_id
             , dimension = self.dimensions
+            , kernel_id = self.kernel_id
             , run = self.run
             , losses = self._model_settings.losses
             , additional_datasets = self._model_settings.additional_datasets
@@ -463,11 +465,10 @@ class RunIterator:  # == File
                 function_id = int(g.group('fid')),
                 dimensions = int(g.group('dim')),
                 taskid = int(g.group('taskid')),
+                kernel_id = int(g.group('taskid')) % 9,
                 run = int(g.group('run')),
                 settings=self.settings,
                 model_settings=self.model_settings)
-
-
 
     @property
     @functools.lru_cache()
