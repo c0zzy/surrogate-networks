@@ -112,6 +112,7 @@ class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
         , function_id: int
         , dimension: int
         , run: int
+        , kernel_id: int
         , losses = None
         , additional_datasets = None
 
@@ -120,6 +121,7 @@ class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
         
         self.run = run
         self.dimension = dimension
+        self.kernel_id = kernel_id
         self.function_id = function_id
         # losses
         if losses is None:
@@ -134,12 +136,16 @@ class _HDF5_Concrete_base(_HDF5_Hyperparameters_base):
     
     @property
     def hdf5_final_path(self):
-        return os.path.join(self._model_directory, str(self.function_id),
-            str(self.dimension), f'{self.run}.hdf5')
+        return os.path.join(self._model_directory, 
+            str(self.function_id) + '_fid',
+            str(self.dimension) + '_dim', 
+            f'{self.kernel_id}_{self.run}.hdf5')
     @property
     def hdf5_tmp_path(self):
-        return os.path.join(self._model_directory, str(self.function_id),
-            str(self.dimension), f'{self.run}.hdf5_tmp')
+        return os.path.join(self._model_directory, 
+            str(self.function_id) + '_fid',
+            str(self.dimension) + '_dim', 
+            f'{self.kernel_id}_{self.run}.hdf5_tmp')
     @abstractmethod
     def init(self):
         pass
@@ -321,7 +327,7 @@ class LoaderIterator(_HDF5_Hyperparameters_base):
                 m.files.append(os.path.normpath(os.path.join(root, fil)))
         m.type_output = collections.namedtuple(
             'RunDescription', 
-            ['function_id', 'dimension', 'run']
+            ['function_id', 'dimension', 'kernel_id', 'run']
         )
         return m
     
@@ -332,14 +338,19 @@ class LoaderIterator(_HDF5_Hyperparameters_base):
             raise StopIteration()
 
         func_id, dim, basefilename = filepath.split(os.sep)[-3:]
-        run = basefilename.split('.')[0]
+        func_id = func_id[:-4]
+        dim = dim[:-4]
+        kernel_id_and_run = basefilename.split('.')[0]
+        kernel_id, run = kernel_id_and_run.split('_')
 
-        conf = self.type_output(int(func_id), int(dim), int(run))
+
+        conf = self.type_output(int(func_id), int(dim), int(kernel_id), int(run))
         l = Loader(
                 model=self.model, 
                 hyperparameters=self.hyperparameters, 
                 function_id=conf.function_id,
                 dimension=conf.dimension,
+                kernel_id = conf.kernel_id,
                 run=conf.run,
                 root_directory=self.root_directory
             )
@@ -374,7 +385,7 @@ if __name__ == '__main__':
         def test_loader(self):
             # CREATE FIRST MODEL
             Initializer( model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                    , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
+                    , function_id=3, dimension=2, kernel_id=1, run=0, root_directory = self.testFileDirName,
                   )
             self.assertTrue(os.path.exists(
                 os.path.join(self.testFileDirName, 'testModel1', 'dispatcher.csv') ))
@@ -383,14 +394,14 @@ if __name__ == '__main__':
             m1_dir = m1_dir.pop()
             
             self.assertTrue(os.path.exists(
-                os.path.join(self.testFileDirName, 'testModel1', m1_dir, '3', '2', '0.hdf5_tmp') ))
+                os.path.join(self.testFileDirName, 'testModel1', m1_dir, '3_fid', '2_dim', '1_0.hdf5_tmp') ))
             with open(os.path.join(self.testFileDirName, 'testModel1', 'dispatcher.csv'), 'r') as f:
                 self.assertEqual(sum(1 for line in f), 2)
             self.assertEqual(len(os.listdir(self.testFileDirName)), 1)
             
             # CREATE SECOND MODEL
             Initializer( model='testModel2', hyperparameters={'a': 12.3, 'b': 15}
-                    , function_id=2 , dimension=4 , run=2 , root_directory = self.testFileDirName
+                    , function_id=2, dimension=4, kernel_id=1, run=2, root_directory = self.testFileDirName
                   )
             self.assertTrue(os.path.exists(
                 os.path.join(self.testFileDirName, 'testModel2', 'dispatcher.csv') ))
@@ -398,7 +409,7 @@ if __name__ == '__main__':
             m2_dir.remove('dispatcher.csv')
             m2_dir = m2_dir.pop()
             self.assertTrue(os.path.exists(
-                os.path.join(self.testFileDirName, 'testModel2', m2_dir, '2', '4', '2.hdf5_tmp') ))
+                os.path.join(self.testFileDirName, 'testModel2', m2_dir, '2_fid', '4_dim', '1_2.hdf5_tmp') ))
             with open(os.path.join(self.testFileDirName, 'testModel2', 'dispatcher.csv'), 'r') as f:
                 self.assertEqual(sum(1 for line in f), 2)
             self.assertEqual(len(os.listdir(self.testFileDirName)), 2)
@@ -406,7 +417,7 @@ if __name__ == '__main__':
                 
             # CREATE THIRD...
             Initializer( model='testModel1', hyperparameters={'a': 12.3, 'b': 16} # <--- minor change of hyp.
-                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=1, dimension=2, kernel_id=1, run=0 , root_directory = self.testFileDirName
                   )
             self.assertTrue(os.path.exists(
                 os.path.join(self.testFileDirName, 'testModel1', 'dispatcher.csv') ))
@@ -418,7 +429,7 @@ if __name__ == '__main__':
             m3_dir = m3_dir.pop()
             
             self.assertTrue(os.path.exists(
-                os.path.join(self.testFileDirName, 'testModel1', m3_dir, '1', '2', '0.hdf5_tmp') ))
+                os.path.join(self.testFileDirName, 'testModel1', m3_dir, '1_fid', '2_dim',  '1_0.hdf5_tmp') ))
             self.assertEqual(len(os.listdir(self.testFileDirName)), 2)
             
             f = list(itertools.chain.from_iterable((files for subdir, dirs, files in os.walk(self.testFileDirName))))
@@ -427,18 +438,18 @@ if __name__ == '__main__':
 
         def test_loss(self):
             Initializer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
-                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=1, dimension=2, kernel_id=2, run=0, root_directory = self.testFileDirName
                     , losses = [losses.LossL2(), losses.LossL1()]
                   )
             s = Saver( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
-                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=1, dimension=2, kernel_id=2, run=0, root_directory = self.testFileDirName
                     , losses = [losses.LossL2(), losses.LossL1()]
                   )
             s.write_results_to_dataset(prediction=np.array([1,2,4]), target=np.array([2,2,2]))
             s.write_results_to_dataset(prediction=np.array([1,2,5]), target=np.array([2,2,2]))
 
             l = Loader( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
-                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=1, dimension=2, kernel_id=2, run=0 , root_directory = self.testFileDirName
                   )
 
             prediction, target, other_obj = l.data
@@ -454,19 +465,19 @@ if __name__ == '__main__':
 
         def test_additional_datasets(self):
             Initializer( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
-                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=1, dimension=2, kernel_id=3, run=0, root_directory = self.testFileDirName
                     , losses = [losses.LossL2(), losses.LossL1()]
                     , additional_datasets = ['a']
                   )
             s = Saver( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
-                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=1, dimension=2, kernel_id=3, run=0 , root_directory = self.testFileDirName
                     , losses = [losses.LossL2(), losses.LossL1()]
                   )
             s.write_results_to_dataset(prediction=np.array([1,2,4]), target=np.array([2,2,2]), a=2)
             s.write_results_to_dataset(prediction=np.array([1,2,5]), target=np.array([2,2,2]), a=3)
 
             l = Loader( model='testModel1_loss', hyperparameters={'a': 12.3, 'b': 16}
-                    , function_id=1 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=1, dimension=2, kernel_id=3, run=0, root_directory = self.testFileDirName
                   )
 
             prediction, target, other_obj = l.data
@@ -494,11 +505,11 @@ if __name__ == '__main__':
         def test_loader(self):
             # CREATE FIRST MODEL
             Initializer(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                , function_id=3, dimension=2, kernel_id=4,  run=0 , root_directory = self.testFileDirName
                   )
             
             s = Saver(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                , function_id=3, dimension=2, kernel_id=4, run=0, root_directory = self.testFileDirName
                   )
             
             self.assertEqual(s.already_computed, 0)
@@ -515,7 +526,7 @@ if __name__ == '__main__':
                 
                 # loader
                 l = Loader(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                    , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName
+                    , function_id=3, dimension=2, kernel_id=4, run=0 , root_directory = self.testFileDirName
                     )
                 
                 pred, tar, si = l.data
@@ -534,7 +545,7 @@ if __name__ == '__main__':
                     
             ####  NEW SAVER
             s = Saver(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName )
+                , function_id=3 , dimension=2, kernel_id=4, run=0 , root_directory = self.testFileDirName )
             self.assertEqual(len(sizes), s.already_computed)
             
             s.write_results_to_dataset(
@@ -543,7 +554,7 @@ if __name__ == '__main__':
                 training_samples = 10)
             
             l = Loader(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName)
+                , function_id=3, dimension=2, kernel_id=4, run=0 , root_directory = self.testFileDirName)
             
             pred, tar, si = l.data
             self.assertEqual(pred.shape[0], len(sizes) + 1)
@@ -563,7 +574,7 @@ if __name__ == '__main__':
             #### FINALIZE + LOADER AGAIN
             
             l = Loader(model='testModel1', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName)
+                , function_id=3, dimension=2, kernel_id=4, run=0 , root_directory = self.testFileDirName)
             pred, tar, si = l.data
             
             sizes = sizes + [10]
@@ -579,12 +590,12 @@ if __name__ == '__main__':
 
         def test_clean_and_emergency_generation_of_dataset(self):
             Initializer(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
+                , function_id=3, dimension=2, kernel_id=5, run=0, root_directory = self.testFileDirName,
                 losses = [losses.LossL1()]
                   )
             
             s = Saver(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName,
+                , function_id=3 , dimension=2, kernel_id=5, run=0 , root_directory = self.testFileDirName,
                 losses = [losses.LossL1()]
                   )
 
@@ -600,7 +611,7 @@ if __name__ == '__main__':
             s.clean(s.hdf5_tmp_path)
         
             l = Loader(model='testModel1_21', hyperparameters={'a': 12.3, 'b': 15}
-                , function_id=3 , dimension=2 , run=0 , root_directory = self.testFileDirName)
+                , function_id=3, dimension=2, kernel_id=5, run=0, root_directory = self.testFileDirName)
 
             pred, tar, si = l.data
             self.assertEqual(pred.shape[0], 0)
@@ -630,11 +641,12 @@ if __name__ == '__main__':
             def create_data(self, model, hyperparameters, fid, dim, run, offset=0):
                 Initializer(model=model, 
                         hyperparameters=hyperparameters, 
-                    function_id=fid, dimension=dim , run=run, 
+                    function_id=fid, dimension=dim, kernel_id=6, run=run, 
                     root_directory = self.testFileDirName, additional_datasets=['training_samples'])
 
                 s = Saver(model=model, hyperparameters=hyperparameters,
-                        function_id=fid, dimension=dim, run=run, root_directory = self.testFileDirName)
+                        function_id=fid, dimension=dim, kernel_id=6, 
+                        run=run, root_directory = self.testFileDirName)
 
                 for size in [2, 5, 3, 17, 13]:
                     s.write_results_to_dataset(
