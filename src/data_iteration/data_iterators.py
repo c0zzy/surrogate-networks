@@ -188,7 +188,10 @@ class State:
         self._settings = run.settings
         self._gen = gen
 
-        if gen + 2 == len(self._run.gen_split):
+        if gen == 417:
+            import pdb; pdb.set_trace()
+
+        if gen + 1 == len(self._run.gen_split):
             pos, next_pos = self._run.gen_split[gen], None
         else:
             pos, next_pos = self._run.gen_split[gen:gen + 2]
