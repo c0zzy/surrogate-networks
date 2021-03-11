@@ -1,0 +1,3 @@
+matfiles_folder: ../../exp_doubleEC_28_log_nonadapt/
+run_datafiles_folder: /home/cozzy/dev/research/surrogate/data/run-datafiles/
+results: /home/cozzy/dev/research/surrogate/surrogate-networks/results
