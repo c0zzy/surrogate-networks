@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
+import logging
 from collections import Iterable
 
 import numpy as np
@@ -12,13 +13,13 @@ import copy
 import math
 from abc import ABC, abstractmethod
 
-import dataset_duplicits_toolkit
-import saver
+from . import dataset_duplicits_toolkit
+from . import saver
 
 
 class RunIteratorSettings:
     def __init__(self
-                 , zbynek_mode=False  # I'm interested in how much I'm loosing vs our lord Zbyňo
+                 , zbynek_mode=False  # Include original project results
                  , remove_duplicits_from_population=True
                  , remove_duplicits_from_archive=True
                  , remove_already_known_points_from_tss_selection_process=False  # aka mistake...
@@ -30,20 +31,22 @@ class RunIteratorSettings:
         del a['self']
         self.__dict__.update(a)
 
+
 class ExperimentSettings:
     def __init__(self, *
-        , name : str 
-        , hyperparameters : dict
-        , root_directory : str
-        , losses : list
-        , additional_datasets : list = None
-        , save_results : bool = True
-        , allow_skipping : bool = True
-        , allow_skipping_completed_results : bool = True
-        ):
+                 , name: str
+                 , hyperparameters: dict
+                 , root_directory: str
+                 , losses: list
+                 , additional_datasets: list = None
+                 , save_results: bool = True
+                 , allow_skipping: bool = True
+                 , allow_skipping_completed_results: bool = True
+                 ):
         a = locals()
         del a['self']
         self.__dict__.update(a)
+
 
 class TSSbase(ABC):
     def __init__(self
@@ -188,9 +191,6 @@ class State:
         self._settings = run.settings
         self._gen = gen
 
-        if gen == 417:
-            import pdb; pdb.set_trace()
-
         if gen + 1 == len(self._run.gen_split):
             pos, next_pos = self._run.gen_split[gen], None
         else:
@@ -205,19 +205,19 @@ class State:
         # Duplicit filtering
         if self._settings.remove_duplicits_from_archive:
             self.x_fit, self.y_fit = self._remove_duplicits_basic(self.x_fit, self.y_fit)
-            
+
         archive_points = self.x_fit
-            
-        if self._settings.remove_duplicits_from_population:    
+
+        if self._settings.remove_duplicits_from_population:
             population, = self._remove_duplicits_basic(population)
-        
+
         if self._settings.remove_already_known_points_from_tss_selection_process:
             population = self._remove_elements(archive_points, population)
-            
+
         # TSS filtering
         tss = self._get_tss(population)
         self.x_fit, self.y_fit = self._select_by_tss(tss, self.x_fit, self.y_fit)
-        
+
         # Evaluation ....
         self.x_eval = self._run.points[pos:next_pos, ...]
         self.y_eval = self._run.fvalues_orig[pos:next_pos]
@@ -231,12 +231,12 @@ class State:
 
         # Remove evaluation dupl.
         if self._settings.remove_already_known_points_from_evaluation_process:
-            if self._settings.zbynek_mode: 
-                self.x_eval, self.y_eval, self.y_eval_base =                     self._remove_elements(archive_points, self.x_eval, self.y_eval, self.y_eval_base)
+            if self._settings.zbynek_mode:
+                self.x_eval, self.y_eval, self.y_eval_base = self._remove_elements(archive_points, self.x_eval,
+                                                                                   self.y_eval, self.y_eval_base)
             else:
                 self.x_eval, self.y_eval = self._remove_elements(archive_points, self.x_eval, self.y_eval)
-            
-        
+
     @staticmethod
     def _remove_duplicits_basic(points, *others):
         oepm = dataset_duplicits_toolkit.duplicit_mask(points)
@@ -254,8 +254,8 @@ class State:
             np.zeros(shape=(len(points),), dtype=np.bool)
         ])
         mask = dataset_duplicits_toolkit.duplicit_mask_with_hot_elements(all_elems, hot_mask)[len(to_remove):]
-        return (points[mask, ...], ) + tuple(x[mask, ...] for x in others)
-        
+        return (points[mask, ...],) + tuple(x[mask, ...] for x in others)
+
     def _select_by_tss(self, tss, points, evals, *others):
         kwargs = {}
         if self._settings.use_distance_weight:
@@ -267,7 +267,7 @@ class State:
             self.distances = other_info['minimal_distances']
 
         return (points[mask, ...], evals[mask]) + tuple(x[mask, ...] for x in others)
-        
+
     def _get_tss(self, population):
         assert self._run.surrogate_param_type == 'nearest'
 
@@ -296,12 +296,19 @@ class State:
     def provide_results(self, prediction, **others):
         return self._run._provide_results(prediction, **others)
 
+    def provide_empty_result(self, **others):
+        return self._run._provide_results(None, **others)
+
+    def __repr__(self):
+        return f"{self._run.name} GEN: {self._gen} FIT: {self.x_fit.shape} EVAL: {self.x_eval.shape}"
+
 
 class MockStateIterator:
     def __init__(self, name=None, path=None, **kwargs):
         self.name = name
         self.path = path
         self.__dict__.update(kwargs)
+
 
 class StateIterator:  # / == Run
     '''
@@ -316,6 +323,7 @@ class StateIterator:  # / == Run
         coco - ground truth for codomain
         ...
     '''
+
     def __init__(self, *, name, path, model_settings, **kwargs):
         self.name = name
         self.path = path
@@ -339,46 +347,45 @@ class StateIterator:  # / == Run
         return super().__getattribute__(name)
 
     def _init_saver(self):
-        self.saver = saver.Saver(
-              model = self._model_settings.name
-            , root_directory = self._model_settings.root_directory
-            , hyperparameters = self._model_settings.hyperparameters
-            , function_id = self.function_id
-            , dimension = self.dimensions
-            , kernel_id = self.kernel_id
-            , run = self.run
-            , losses = self._model_settings.losses
-            , additional_datasets = self._model_settings.additional_datasets
-            , disable = not self._model_settings.save_results
-            )
+        self.saver = saver.Saver(  # TODO add Zbynek data
+            model=self._model_settings.name
+            , root_directory=self._model_settings.root_directory
+            , hyperparameters=self._model_settings.hyperparameters
+            , function_id=self.function_id
+            , dimension=self.dimensions
+            , kernel_id=self.kernel_id
+            , run=self.run
+            , losses=self._model_settings.losses
+            , additional_datasets=self._model_settings.additional_datasets
+            , disable=not self._model_settings.save_results
+        )
         if self._model_settings.allow_skipping:
             self.position = self.saver.already_computed
         elif self.saver.already_computed:
-            self.saver.clean(co.saver.hdf5_tmp_path)
+            self.saver.clean(self.saver.hdf5_tmp_path)
 
     def _close_saver(self):
         self.saver.finalize()
 
-
     def initialize_experiment(self, remove_results=False):
         saver.Initializer(
-              model = self._model_settings.name
-            , root_directory = self._model_settings.root_directory
-            , hyperparameters = self._model_settings.hyperparameters
-            , function_id = self.function_id
-            , dimension = self.dimensions
-            , kernel_id = self.kernel_id
-            , run = self.run
-            , losses = self._model_settings.losses
-            , additional_datasets = self._model_settings.additional_datasets
-            , remove_existing_files = remove_results
-            )
+            model=self._model_settings.name
+            , root_directory=self._model_settings.root_directory
+            , hyperparameters=self._model_settings.hyperparameters
+            , function_id=self.function_id
+            , dimension=self.dimensions
+            , kernel_id=self.kernel_id
+            , run=self.run
+            , losses=self._model_settings.losses
+            , additional_datasets=self._model_settings.additional_datasets
+            , remove_existing_files=remove_results
+        )
 
     def __iter__(self):
         co = copy.deepcopy(self)
         co._init_saver()
         return co
-        #return iter(map(lambda g: State(self, g), range(1, len(self.gen_split) - 1)))
+        # return iter(map(lambda g: State(self, g), range(1, len(self.gen_split) - 1)))
 
     def __next__(self):
         if self._model_settings.allow_skipping_completed_results:
@@ -404,7 +411,10 @@ class StateIterator:  # / == Run
 
     def sparse_iter(self, steps=10):
         gens = len(self.gen_split)
-        selected = np.linspace(1, gens - 2, steps, dtype=int)
+        if steps >= gens:
+            selected = range(1, gens - 1)
+        else:
+            selected = np.linspace(1, gens - 2, steps, dtype=int)
         return iter((g, State(self, g)) for g in selected)
 
     def _provide_results(self, prediction, **others):
@@ -417,17 +427,24 @@ class StateIterator:  # / == Run
             raise RuntimeError(e)
         self._result_provided = True
         target = self.cur_state.y_eval
-        return self.saver.write_results_to_dataset(
-                  prediction = prediction
-                , target = target
+        if prediction is None:
+            return self.saver.write_results_to_dataset(
+                prediction=np.array([np.nan] * len(target))
+                , target=target
                 , **others)
+        return self.saver.write_results_to_dataset(
+            prediction=prediction
+            , target=target
+            , **others)
+
 
 class RunIterator:  # == File
     def __init__(self
-                 , settings : RunIteratorSettings
-                 , model_settings : ExperimentSettings
-                 , data_folder:str='../../npz-data' # Input data
+                 , settings: RunIteratorSettings
+                 , model_settings: ExperimentSettings
+                 , data_folder: str = '../../npz-data'  # Input data
                  , filters=None
+                 , filter_dict=None
                  ):
         self.data_folder = data_folder
         self.settings = settings
@@ -440,12 +457,17 @@ class RunIterator:  # == File
         else:
             self.filters = [filters]
 
+        if filter_dict is None:
+            self.filter_dict = {}
+        else:
+            self.filter_dict = filter_dict
+
         self._inspect_data_folder()
         self.reg_exp = re.compile(r'.*results_(?P<fid>\d+)_(?P<dim>\d+)D_(?P<taskid>\d+)_(?P<run>\d+).npz')
 
     @staticmethod
-    def _order_key(file):
-        return [int(num) for num in re.findall("\d+", file)]
+    def _order_key(name):
+        return [int(num) for num in re.findall("\d+", name)]
 
     def _inspect_data_folder(self):
         self.data_files = os.listdir(self.data_folder)
@@ -453,7 +475,7 @@ class RunIterator:  # == File
         self.data_files.sort(key=self._order_key)
 
     def __iter__(self):
-        self.reg_exp, tmp = None, self.reg_exp 
+        self.reg_exp, tmp = None, self.reg_exp
         instance = copy.deepcopy(self)
         self.reg_exp = tmp
         instance.reg_exp = tmp
@@ -463,15 +485,30 @@ class RunIterator:  # == File
         g = self.reg_exp.match(name)
         assert g
         return cls(
-                name=name, 
-                path=path, 
-                function_id = int(g.group('fid')),
-                dimensions = int(g.group('dim')),
-                taskid = int(g.group('taskid')),
-                kernel_id = int(g.group('taskid')) % 9,
-                run = int(g.group('run')),
-                settings=self.settings,
-                model_settings=self.model_settings)
+            name=name,
+            path=path,
+            function_id=int(g.group('fid')),
+            dimensions=int(g.group('dim')),
+            taskid=int(g.group('taskid')),
+            kernel_id=int(g.group('taskid')) % 9,
+            run=int(g.group('run')),  # TODO rename to run to instance_id
+            settings=self.settings,
+            model_settings=self.model_settings)
+
+    def filter_by_dict(self, obj):
+        if self.filter_dict.get('dimensions', False):
+            if not obj.dimensions in self.filter_dict.get('dimensions'):
+                return False
+        if self.filter_dict.get('functions', False):
+            if not obj.function_id in self.filter_dict.get('functions'):
+                return False
+        if self.filter_dict.get('kernels', False):
+            if not obj.kernel_id in self.filter_dict.get('kernels'):
+                return False
+        if self.filter_dict.get('instances', False):
+            if not obj.run in self.filter_dict.get('instances'):
+                return False
+        return True
 
     @property
     @functools.lru_cache()
@@ -480,6 +517,9 @@ class RunIterator:  # == File
         for name in self.data_files:
             path = os.path.join(self.data_folder, name)
             obj = self._get_item(name, path, cls=MockStateIterator)
+
+            if not self.filter_by_dict(obj):
+                continue
 
             ok = True
             for fce in self.filters:
@@ -500,6 +540,9 @@ class RunIterator:  # == File
                 path = self.data_folder + '/' + name
                 obj = self._get_item(name, path)
 
+                if not self.filter_by_dict(obj):
+                    continue
+
                 ok = True
                 for fce in self.filters:
                     if not fce(obj):
@@ -513,11 +556,10 @@ class RunIterator:  # == File
 
     def get_loader(self):
         return saver.LoaderIterator(
-              model = self.model_settings.name
-            , root_directory = self.model_settings.root_directory
-            , hyperparameters = self.model_settings.hyperparameters
-            )
-
+            model=self.model_settings.name
+            , root_directory=self.model_settings.root_directory
+            , hyperparameters=self.model_settings.hyperparameters
+        )
 
 
 # TESTS
