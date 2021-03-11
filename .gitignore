@@ -137,3 +137,5 @@ old/
 *.drawio
 *.npy
 *.npz
+
+/results
