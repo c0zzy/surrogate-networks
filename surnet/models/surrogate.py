@@ -1,9 +1,11 @@
 import numpy as np
+from utils.logger import log
 
 
 class Surrogate:
-    def __init__(self):
+    def __init__(self, log=log, **kwargs):
         self.regressor = None
+        self.log = log
 
     def fit(self, x, y):
         return NotImplemented

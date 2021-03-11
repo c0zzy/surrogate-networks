@@ -1,7 +1,7 @@
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern
 
-from src.models.surrogate import Surrogate
+from ..models.surrogate import Surrogate
 
 
 class SkGPSurrogate(Surrogate):
