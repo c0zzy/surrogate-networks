@@ -1,6 +1,6 @@
 from sklearn.linear_model import LinearRegression
 
-from ..models.surrogate import Surrogate
+from surnet.models.surrogate import Surrogate
 
 
 class LinearSurrogate(Surrogate):

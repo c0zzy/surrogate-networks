@@ -11,11 +11,11 @@ from matplotlib import pyplot as plt
 from cfg import load_config
 from surnet import losses
 from data_iteration.data_iterators import RunIteratorSettings, RunIterator, ExperimentSettings, State
-from models.linear import LinearSurrogate
-from utils.data_files_utils import decode_filename
-from utils.data_utils import range_normalize, min_max_normalize
-from utils.logger import no_log
-from utils.model_utils import build_model
+from surnet.models.linear import LinearSurrogate
+from surnet.utils.data_files_utils import decode_filename
+from surnet.utils.data_utils import range_normalize, min_max_normalize
+from surnet.utils.logger import no_log
+from surnet.utils.model_utils import build_model
 
 
 def run_filter(run):

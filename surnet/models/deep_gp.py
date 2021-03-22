@@ -3,7 +3,7 @@ import itertools
 import gpytorch
 import torch
 
-from models.gp import GPSurrogate, GPRegressionModel
+from surnet.models.gp import GPSurrogate, GPRegressionModel
 
 
 class FeatureExtractor(torch.nn.Sequential):

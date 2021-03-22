@@ -1,5 +1,5 @@
-from models.deep_gp import DeepGPSurrogate
-from models.gp import GPSurrogate
+from surnet.models.deep_gp import DeepGPSurrogate
+from surnet.models.gp import GPSurrogate
 
 
 def build_model(hps, **kwargs):

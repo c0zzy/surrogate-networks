@@ -40,5 +40,4 @@ def validation_split(x, y, ratio=0.1, min_train=2):
 
     x_train, x_val = x[val:], x[:val]
     y_train, y_val = y[val:], y[:val]
-
     return x_train, x_val, y_train, y_val

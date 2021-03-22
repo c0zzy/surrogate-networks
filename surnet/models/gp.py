@@ -10,11 +10,11 @@ from gpytorch.distributions import MultivariateNormal
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 
-from losses import LossL2
-from models.kernels import init_kernel
-from models.surrogate import Surrogate
-from optim_wrapper import AdamWrapper, LBFGSWrapper
-from utils.data_utils import range_normalize, validation_split
+from surnet.losses import LossL2
+from surnet.models.kernels import init_kernel
+from surnet.models.surrogate import Surrogate
+from surnet.optim_wrapper import AdamWrapper, LBFGSWrapper
+from surnet.utils.data_utils import range_normalize, validation_split
 
 
 class GPRegressionModel(gpytorch.models.ExactGP):

@@ -2,7 +2,7 @@ import warnings
 
 from sklearn.neural_network import MLPRegressor
 
-from ..models.surrogate import Surrogate
+from surnet.models.surrogate import Surrogate
 
 
 class MLPSurrogate(Surrogate):

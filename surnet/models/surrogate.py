@@ -1,5 +1,5 @@
 import numpy as np
-from utils.logger import log
+from surnet.utils.logger import log
 
 
 class Surrogate:

@@ -7,8 +7,8 @@ import losses
 
 from cfg.load_config import load_config
 from data_iteration.data_iterators import RunIteratorSettings, RunIterator, ExperimentSettings
-from utils.logger import log
-from utils.model_utils import build_model
+from surnet.utils.logger import log
+from surnet.utils.model_utils import build_model
 
 
 class ExperimentMain:
