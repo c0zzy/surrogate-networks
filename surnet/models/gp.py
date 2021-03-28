@@ -173,3 +173,6 @@ class GPSurrogate(Surrogate):
             if var:
                 return prediction.mean.numpy(), prediction.variance.numpy()
             return prediction.mean.numpy()
+
+    def count_trainable_params(self):
+        return self.regressor.count_trainable_params()
