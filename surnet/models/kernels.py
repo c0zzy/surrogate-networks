@@ -3,14 +3,6 @@ from gpytorch.constraints import Interval
 
 
 def init_kernel(name, dim, params, scale=True):
-    dim = {  # TODO clean up
-        2: 2,
-        3: 3,
-        5: 3,
-        10: 5,
-        20: 5
-    }[dim]
-
     # struct(... % LIN
     # 'covFcn', {'{@covPoly, ''eye'', 1}'}, ...
     # 'hyp', {struct('lik', log(0.01), ...
